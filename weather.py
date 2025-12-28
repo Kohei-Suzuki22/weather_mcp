@@ -1,41 +1,52 @@
-from typing import Any
+"""
+Weather MCP Server
 
-import httpx
-from mcp.server.fastmcp import FastMCP
-
-# Initialize FastMCP server
-mcp = FastMCP("weather")
-
-# Constants
-NWS_API_BASE = "https://api.weather.gov"
-USER_AGENT = "weather-app/1.0"
-
-
-
-async def make_nws_request(url: str) -> dict[str, Any] | None:
-    """Make a request to the NWS API with proper error handling."""
-    headers = {"User-Agent": USER_AGENT, "Accept": "application/geo+json"}
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, headers=headers, timeout=30.0)
-            response.raise_for_status()
-            return response.json()
-        except Exception:
-            return None
-
-
-def format_alert(feature: dict) -> str:
-    """Format an alert feature into a readable string."""
-    props = feature["properties"]
-    return f"""
-Event: {props.get("event", "Unknown")}
-Area: {props.get("areaDesc", "Unknown")}
-Severity: {props.get("severity", "Unknown")}
-Description: {props.get("description", "No description available")}
-Instructions: {props.get("instruction", "No specific instructions provided")}
+FastMCPを使用したMCPサーバーの実装例。
+NWS (National Weather Service) APIを使用して、米国の天気予報と気象警報を取得する。
 """
 
+from mcp.server.fastmcp import FastMCP
 
+from nws_api import NWS_API_BASE, format_alert, make_nws_request
+
+# =============================================================================
+# サーバーの初期化
+# =============================================================================
+# FastMCPはMCPサーバーを簡単に作成するためのラッパークラス
+# 引数 "weather" はサーバー名（ログやデバッグに使用される）
+mcp = FastMCP("weather")
+
+
+# =============================================================================
+# MCPツール定義
+# =============================================================================
+# @mcp.tool() デコレータで関数をMCPツールとして登録する
+#
+# 重要なポイント:
+# - 関数名がツール名になる（例: get_alerts, get_forecast）
+# - 型ヒント（state: str）がクライアントに引数の型を伝える
+# - docstringがツールの説明としてClaudeに渡される
+#   → Claudeはこれを読んで「いつ・どう使うか」を判断する
+# - 戻り値は str で返す（Claudeが解釈しやすい形式）
+#
+# -----------------------------------------------------------------------------
+# なぜ @mcp.resource() ではなく @mcp.tool() を使うのか？
+# -----------------------------------------------------------------------------
+# 本質的な違いは「誰が呼び出しを決定するか」
+#
+# | 観点         | Resource           | Tool               |
+# |--------------|--------------------|--------------------|
+# | 呼び出し決定者 | ユーザー/ホストアプリ | LLM (Claude)       |
+# | ユーザーの理解度 | 何が欲しいか分かっている | 抽象的な目的だけ伝える |
+# | イメージ      | 「このURIを開いて」  | 「天気を調べて」    |
+#
+# 例:
+# - Resource: ユーザーが「weather://alerts/CA」を明示的に指定
+# - Tool: ユーザーは「西海岸の天気が心配」と言うだけ
+#         → Claudeが「CAのalertsを取ろう」と自律的に判断
+#
+# 今回の天気APIは「Claudeに自分で判断して呼んでほしい」ので Tool が適切
+# =============================================================================
 
 @mcp.tool()
 async def get_alerts(state: str) -> str:
